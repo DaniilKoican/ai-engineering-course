@@ -73,17 +73,29 @@ class Ticket(BaseModel):
     # если данных в обращении нет. Плохое описание = плохое извлечение.
 
     category: Literal["регламент", "доступ", "инцидент", "документация"] = Field(
-        description="TODO 1: что это за поле и как выбрать категорию"
+        description=(
+            "регламент - спрашивать о проядке действий или сроках."
+            "доступ - просят выдать или восстановить доступ"
+            "инцидент - оборудование сломалось, работает неправильно"
+            "документация - просят найти или отправить документ"
+        )
     )
 
     equipment_id: Optional[str] = Field(
         default=None,
-        description="TODO 1: идентификатор оборудования. Подскажи модели: приводить к виду "
-                    "из реестра (КМ-101, П-7, ЭЛОУ-АВТ-6...); что ставить, если не назван",
+        description=(
+            "идентификатор оборудования строго как в реестре предприятия"
+            "км-101, нм-25, п-7, линия-3. Приведи написание к такому виду"
+            "если оборудование в обращении не указано - null, не угадывай и не выводи"
+            "идентификатор из общих слов вроде станок или в цеху"
+        ),
     )
 
     priority: Literal["низкий", "средний", "высокий"] = Field(
-        description="TODO 1: как определить приоритет по тексту обращения"
+        description=(
+            "высокий приоритет - производство стоит или имеется риск для людей"
+            "средний - мешает работе, необходимо исправить"
+        )
     )
 
     summary: str = Field(
@@ -111,7 +123,15 @@ class Ticket(BaseModel):
 
         Сейчас функция пропускает всё подряд — это и надо исправить.
         """
-        return value
+        if value is None:
+            return None
+        key = _norm(value)
+        if key in REGISTRY_LOOKUP:
+            return REGISTRY_LOOKUP[key]
+        raise ValueError(
+            f"оборудование {value} отсутсвует в реестре - заявка на ручную проверку"
+        )         
+
 
 
 # ====================================================================
@@ -161,8 +181,22 @@ def parse_ticket(raw: str) -> Optional[Ticket]:
          напечатать причину (e.errors()[0]["msg"]) и вернуть None.
     """
     block = extract_json_block(raw)
-    data = json.loads(block)
-    return Ticket(**data)
+    if block is None:
+        print("    [схема] модель ответила не JSON")
+        return None
+
+    try:
+        data = json.loads(block)
+    except json.JSONDecodeError:
+        print("    [схема] JSON битый, разобрать не удалось")
+        return None
+
+    try:
+        return Ticket(**data)
+    except ValidationError as e:
+        print(f"    [схема] {e.errors()[0]['msg']}")
+        return None
+
 
 
 def ask_model(text: str) -> str:
